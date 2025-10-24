@@ -1,0 +1,14 @@
+#map {
+             height: 700px;
+             margin: 50px;
+
+}
+h1 {
+        text-align : center;
+}
+
+.pop-image {
+         max-width: 100px;
+         height: auto;
+
+}
