@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Flood Records</title>
+    <link rel="stylesheet" href="assets/styles.css">
+</head>
+
+<body onload="checkAuth(); displayRecords()">
+
+<!-- Navigation -->
+<nav>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="records.html">Records</a>
+    <a href="weather.html">Weather Search</a>
+    <button onclick="logout()">Logout</button>
+</nav>
+
+<h2>Flood Records</h2>
+
+<!-- Add Record Form -->
+<form id="recordForm" onsubmit="addRecord(); return false;">
+    <input id="location" placeholder="Location" required>
+    <input id="waterLevel" type="number" placeholder="Water Level (cm)" required>
+    <input id="rainfall" type="number" placeholder="Rainfall (mm)" required>
+    <button type="submit">Add Record</button>
+</form>
+
+
+<!-- Records Table -->
+<table border="1">
+    <thead>
+        <tr>
+            <th>Location</th>
+            <th>Water Level (cm)</th>
+            <th>Rainfall (mm)</th>
+            <th>Risk</th>
+            <th>Delete</th>
+        </tr>
+    </thead>
+    <tbody id="recordsTable"></tbody>
+</table>
+
+<!-- Scripts -->
+<script src="assets/scripts/auth.js"></script>
+<script src="assets/scripts/oop.js"></script>
+<script src="assets/scripts/crud.js"></script>
+
+<script>
+    // Logout function
+    function logout() {
+        localStorage.removeItem("loggedIn");
+        window.location.href = "index.html";
+    }
+
+    // Example: Risk calculation based on water level
+    function calculateRisk(waterLevel) {
+        if (waterLevel >= 100) return "High";
+        if (waterLevel >= 50) return "Medium";
+        return "Low";
+    }
+
+    // Display records function (from JSON/localStorage)
+    function displayRecords() {
+        const records = JSON.parse(localStorage.getItem("floodRecords") || "[]");
+        const table = document.getElementById("recordsTable");
+        table.innerHTML = "";
+
+        records.forEach((rec, index) => {
+            const row = document.createElement("tr");
+
+            row.innerHTML = `
+                <td>${rec.location}</td>
+                <td>${rec.waterLevel}</td>
+                <td>${rec.rainfall}</td>
+                <td>${calculateRisk(rec.waterLevel)}</td>
+                <td><button onclick="deleteRecord(${index})">Delete</button></td>
+            `;
+            table.appendChild(row);
+        });
+    }
+
+    // Add record function
+    function addRecord() {
+        const location = document.getElementById("location").value.trim();
+        const waterLevel = parseFloat(document.getElementById("waterLevel").value);
+        const rainfall = parseFloat(document.getElementById("rainfall").value);
+
+        if (!location || isNaN(waterLevel) || isNaN(rainfall)) {
+            alert("Please fill all fields correctly!");
+            return;
+        }
+
+        const records = JSON.parse(localStorage.getItem("floodRecords") || "[]");
+        records.push({ location, waterLevel, rainfall });
+        localStorage.setItem("floodRecords", JSON.stringify(records));
+
+        document.getElementById("recordForm").reset();
+        displayRecords();
+    }
+
+    // Delete record function
+    function deleteRecord(index) {
+        const records = JSON.parse(localStorage.getItem("floodRecords") || "[]");
+        records.splice(index, 1);
+        localStorage.setItem("floodRecords", JSON.stringify(records));
+        displayRecords();
+    }
+</script>
+
+</body>
+</html>

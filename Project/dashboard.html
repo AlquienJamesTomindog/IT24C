@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="assets/styles.css">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <!-- Leaflet Heatmap -->
+    <script src="https://leaflet.github.io/Leaflet.heat/dist/leaflet-heat.js"></script>
+
+    <style>
+        /* Simple style for autocomplete dropdown */
+        #suggestions {
+            position: absolute;
+            background: white;
+            border: 1px solid #ccc;
+            width: 200px;
+            display: none;
+            z-index: 999;
+        }
+        #suggestions div {
+            padding: 5px;
+            cursor: pointer;
+        }
+        #suggestions div:hover {
+            background: #eee;
+        }
+    </style>
+</head>
+
+<body onload="initDashboard()">
+
+<nav>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="records.html">Records</a>
+    <a href="weather.html">Weather Search</a>
+    <button onclick="logout()">Logout</button>
+</nav>
+
+<h1>Dashboard</h1>
+
+<!-- Weather Section -->
+<div id="weatherBox">
+    <h2>Weather</h2>
+
+    <input type="text" id="cityInput" placeholder="Enter city name..." oninput="showSuggestions()">
+    <button onclick="searchCity()">Search</button>
+    <div id="suggestions"></div>
+
+    <p id="errorMsg" style="display:none;">City not found.</p>
+
+    <div id="weatherCard" style="display:none;">
+        <p class="title" id="cityName"></p>
+        <img id="weatherIcon" src="">
+        <p id="temp"></p>
+        <p id="humidity"></p>
+        <p id="seaLevel"></p>
+        <p id="description"></p>
+    </div>
+</div>
+
+<h2>5-Day Forecast</h2>
+<canvas id="forecastChart" height="80"></canvas>
+
+<h2>Flood Records Chart</h2>
+<canvas id="floodChart" height="100"></canvas>
+<p id="noDataMsg" style="color:red; display:none;">No flood data for this location.</p>
+
+<h2>Flood Locations Map</h2>
+<button onclick="toggleHeatmap()">Toggle Heatmap</button>
+<div id="map" style="height:450px; margin-top:10px;"></div>
+
+<script>
+/* -----------------------------
+    GLOBAL VARIABLES
+----------------------------- */
+const API_KEY = "28274614bb1989f2bb2e37eeec50e83c";
+let floodChart = null;
+let forecastChart = null;
+let map = null;
+let heatLayer = null;
+
+/* -----------------------------
+    INIT DASHBOARD
+----------------------------- */
+function initDashboard() {
+    checkAuth();
+    getWeather("Manila");
+}
+
+/* ----------------------------- */
+function logout() {
+    localStorage.removeItem("loggedIn");
+    window.location.href = "index.html";
+}
+
+function checkAuth() {
+    if (!localStorage.getItem("loggedIn")) {
+        window.location.href = "index.html";
+    }
+}
+
+/* -----------------------------
+        AUTOCOMPLETE
+----------------------------- */
+function showSuggestions() {
+    const input = document.getElementById("cityInput").value.toLowerCase();
+    const box = document.getElementById("suggestions");
+
+    if (!input) {
+        box.style.display = "none";
+        return;
+    }
+
+    const records = JSON.parse(localStorage.getItem("floodRecords") || "[]");
+    const locations = [...new Set(records.map(r => r.location))];
+
+    const matches = locations.filter(loc => loc.toLowerCase().includes(input));
+
+    if (matches.length === 0) {
+        box.style.display = "none";
+        return;
+    }
+
+    box.innerHTML = "";
+    matches.forEach(loc => {
+        const div = document.createElement("div");
+        div.innerHTML = loc;
+        div.onclick = () => {
+            document.getElementById("cityInput").value = loc;
+            box.style.display = "none";
+        };
+        box.appendChild(div);
+    });
+
+    box.style.display = "block";
+}
+
+/* -----------------------------
+          SEARCH
+----------------------------- */
+function searchCity() {
+    const city = document.getElementById("cityInput").value.trim();
+    if (city) getWeather(city);
+}
+
+/* -----------------------------
+    GET WEATHER + FORECAST
+----------------------------- */
+async function getWeather(cityName) {
+    try {
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${cityName}&appid=${API_KEY}&units=metric`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.cod === "404") return showError("City not found.");
+
+        document.getElementById("errorMsg").style.display = "none";
+        document.getElementById("weatherCard").style.display = "block";
+
+        document.getElementById("cityName").innerText = data.name;
+        document.getElementById("temp").innerText = "Temperature: " + data.main.temp + "°C";
+        document.getElementById("humidity").innerText = "Humidity: " + data.main.humidity + "%";
+        document.getElementById("seaLevel").innerText = data.main.sea_level ?
+            "Sea Level: " + data.main.sea_level + " hPa" : "Sea Level: N/A";
+        document.getElementById("description").innerText = "Weather: " + data.weather[0].description;
+        document.getElementById("weatherIcon").src =
+            `https://openweathermap.org/img/wn/${data.weather[0].icon}@2x.png`;
+
+        displayFloodChart(cityName);
+        displayFloodMap(cityName);
+        getForecast(cityName);
+
+    } catch (err) {
+        showError("Cannot fetch weather.");
+    }
+}
+
+/* ----------------------------- */
+function showError(message) {
+    document.getElementById("errorMsg").innerText = message;
+    document.getElementById("errorMsg").style.display = "block";
+    document.getElementById("weatherCard").style.display = "none";
+}
+
+/* -----------------------------
+      5-DAY FORECAST CHART
+----------------------------- */
+async function getForecast(cityName) {
+    const url = `https://api.openweathermap.org/data/2.5/forecast?q=${cityName}&appid=${API_KEY}&units=metric`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const labels = [];
+    const temps = [];
+
+    // Take every 8th (1 per day)
+    for (let i = 0; i < data.list.length; i += 8) {
+        labels.push(data.list[i].dt_txt.split(" ")[0]);
+        temps.push(data.list[i].main.temp);
+    }
+
+    if (forecastChart) forecastChart.destroy();
+
+    forecastChart = new Chart(
+        document.getElementById("forecastChart"),
+        {
+            type: "line",
+            data: {
+                labels,
+                datasets: [{
+                    label: "5-Day Forecast (°C)",
+                    data: temps,
+                    borderColor: "blue",
+                    fill: false
+                }]
+            }
+        }
+    );
+}
+
+/* -----------------------------
+      FLOOD BAR CHART
+----------------------------- */
+function displayFloodChart(city) {
+    const ctx = document.getElementById("floodChart").getContext("2d");
+    const records = JSON.parse(localStorage.getItem("floodRecords") || "[]");
+
+    const filtered = records.filter(
+        r => r.location.toLowerCase().includes(city.toLowerCase())
+    );
+
+    if (filtered.length === 0) {
+        document.getElementById("noDataMsg").style.display = "block";
+        if (floodChart) floodChart.destroy();
+        return;
+    }
+
+    document.getElementById("noDataMsg").style.display = "none";
+
+    const labels = filtered.map(r => r.date || "Unknown Date");
+    const values = filtered.map(r => r.waterLevel);
+
+    if (floodChart) floodChart.destroy();
+
+    floodChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [{
+                label: `Flood Levels in ${city}`,
+                data: values,
+                backgroundColor: "rgba(0,120,255,0.6)"
+            }]
+        }
+    });
+}
+
+/* -----------------------------
+      LEAFLET MAP + HEATMAP
+----------------------------- */
+function displayFloodMap(city) {
+    if (!map) {
+        map = L.map("map", {
+            zoomAnimation: true
+        }).setView([14.6, 120.98], 6);
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+            .addTo(map);
+    }
+
+    // remove old circles/markers
+    map.eachLayer(layer => {
+        if (layer instanceof L.Marker || layer instanceof L.Circle) map.removeLayer(layer);
+    });
+
+    const records = JSON.parse(localStorage.getItem("floodRecords") || "[]");
+    const filtered = records.filter(
+        r => r.location.toLowerCase().includes(city.toLowerCase())
+    );
+
+    if (filtered.length === 0) return;
+
+    const markers = [];
+    const heatPoints = [];
+
+    filtered.forEach(r => {
+        const lat = Number(r.latitude);
+        const lng = Number(r.longitude);
+        const level = Number(r.waterLevel);
+
+        const icon = L.icon({
+            iconUrl:
+                level >= 100 ? "https://maps.google.com/mapfiles/ms/icons/red-dot.png" :
+                level >= 50 ? "https://maps.google.com/mapfiles/ms/icons/orange-dot.png" :
+                              "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+            iconSize: [32, 32]
+        });
+
+        const marker = L.marker([lat, lng], { icon })
+            .addTo(map)
+            .bindPopup(`${r.location}<br>Water Level: ${level} cm`);
+
+        markers.push([lat, lng]);
+        heatPoints.push([lat, lng, level / 100]);
+    });
+
+    if (heatLayer) map.removeLayer(heatLayer);
+    heatLayer = L.heatLayer(heatPoints, { radius: 25 });
+
+    map.fitBounds(markers, { padding: [30, 30] });
+}
+
+/* -----------------------------
+       HEATMAP TOGGLE
+----------------------------- */
+function toggleHeatmap() {
+    if (!heatLayer) return;
+    if (map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
+    else map.addLayer(heatLayer);
+}
+</script>
+
+</body>
+</html>

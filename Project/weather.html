@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Weather Search</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: linear-gradient(#4facfe, #00f2fe);
+        }
+
+        nav {
+            background-color: #333;
+            padding: 10px;
+            display: flex;
+        }
+
+        nav a {
+            color: white;
+            text-decoration: none;
+            margin-right: 20px;
+            font-weight: bold;
+        }
+
+        nav a:hover {
+            text-decoration: underline;
+        }
+
+        #weatherApp {
+            max-width: 400px;
+            margin: 50px auto;
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+
+        input {
+            width: 90%;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+        }
+
+        button {
+            width: 90%;
+            padding: 12px;
+            border: none;
+            background: #4facfe;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #379aff;
+        }
+
+        #weatherCard {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 12px;
+            background: #f8f8f8;
+            display: none;
+        }
+
+        #errorMsg {
+            color: red;
+            margin-top: 10px;
+            display: none;
+        }
+
+        img {
+            width: 80px;
+        }
+
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="records.html">Records</a>
+    <a href="weather.html">Weather Search</a>
+    <a href="#" onclick="logout()">Logout</a>
+</nav>
+
+<!-- Weather App -->
+<div id="weatherApp">
+    <h2>🌤 Weather Checker</h2>
+
+    <input type="text" id="cityInput" placeholder="Enter city name...">
+    <button onclick="getWeather()">Search Weather</button>
+
+    <p id="errorMsg">City not found. Try again.</p>
+
+    <div id="weatherCard">
+        <p class="title" id="cityName"></p>
+        <img id="weatherIcon" src="">
+        <p id="temp"></p>
+        <p id="humidity"></p>
+        <p id="seaLevel"></p>
+        <p id="description"></p>
+    </div>
+</div>
+
+<script>
+    // 🔒 Login check
+    const loggedIn = localStorage.getItem("loggedIn");
+    if (!loggedIn) {
+        alert("You must log in first!");
+        window.location.href = "index.html";
+    }
+
+    // 🔑 Logout function
+    function logout() {
+        localStorage.removeItem("loggedIn");
+        window.location.href = "index.html";
+    }
+
+    // 🌤 Weather API
+    const API_KEY = "28274614bb1989f2bb2e37eeec50e83c";
+
+    async function getWeather() {
+        const city = document.getElementById("cityInput").value.trim();
+        if (city === "") {
+            showError("Please enter a city name.");
+            return;
+        }
+
+        try {
+            const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${API_KEY}&units=metric`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.cod === "404") {
+                showError("City not found.");
+                return;
+            }
+
+            document.getElementById("errorMsg").style.display = "none";
+            document.getElementById("weatherCard").style.display = "block";
+
+            document.getElementById("cityName").innerText = data.name;
+            document.getElementById("temp").innerText = "Temperature: " + data.main.temp + "°C";
+            document.getElementById("humidity").innerText = "Humidity: " + data.main.humidity + "%";
+            document.getElementById("seaLevel").innerText = data.main.sea_level ? 
+                "Sea Level: " + data.main.sea_level + " hPa" : "Sea Level: Not Available";
+            document.getElementById("description").innerText = "Weather: " + data.weather[0].description;
+
+            const iconCode = data.weather[0].icon;
+            document.getElementById("weatherIcon").src = `https://openweathermap.org/img/wn/${iconCode}@2x.png`;
+
+        } catch (err) {
+            showError("Cannot fetch weather. Please check your internet or API key.");
+        }
+    }
+
+    function showError(message) {
+        const error = document.getElementById("errorMsg");
+        error.innerText = message;
+        error.style.display = "block";
+        document.getElementById("weatherCard").style.display = "none";
+    }
+</script>
+
+</body>
+</html>
