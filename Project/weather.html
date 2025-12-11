@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Mindanao Weather & Flood Risk</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+:root {
+    --accent: #4A90E2;
+    --bg: #f4f7fa;
+    --text: #222;
+    --card-bg: rgba(255,255,255,0.9);
+}
+body.dark {
+    --bg: #101418;
+    --text: #f9f9f9;
+    --card-bg: rgba(20,20,20,0.8);
+}
+body { margin:0; font-family:"Inter",sans-serif; background:var(--bg); color:var(--text); }
+
+/* Sidebar */
+.sidebar { width:250px; height:100vh; background:var(--card-bg); position:fixed; top:0; left:0; padding-top:30px; }
+.sidebar a { display:block; padding:14px 30px; color:var(--text); text-decoration:none; }
+.sidebar a.active { background:var(--accent); color:white; }
+.sidebar .theme-toggle { padding:12px; background:var(--accent); color:white; margin:15px; border-radius:8px; cursor:pointer; text-align:center; }
+.sidebar a.logout { color:red; }
+
+/* Main content */
+.main { margin-left:250px; padding:30px; }
+.header-banner { background:linear-gradient(135deg,var(--accent),#5AB1FF); padding:30px; color:white; border-radius:18px; margin-bottom:25px; }
+
+.search-bar { padding:8px 12px; border-radius:8px; border:1px solid #130cdd; width:350px; margin-bottom:20px; }
+.weather-card { background:var(--accent); padding:20px; border-radius:12px; margin-bottom:20px; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
+#forecastChart { max-width:900px; margin-top:20px; }
+
+/* Flood risk indicator */
+.flood-risk { display:inline-block; padding:6px 12px; border-radius:12px; color:white; font-weight:bold; margin-top:10px; }
+.high { background:red; }
+.medium { background:orange; }
+.low { background:green; }
+
+/* Autocomplete */
+.autocomplete-items { position: absolute; border: 1px solid #ccc; border-top:none; z-index: 99; top:40px; left:0; right:0; max-height:200px; overflow-y:auto; background:white; }
+.autocomplete-items div { padding: 10px; cursor:pointer; }
+.autocomplete-items div:hover { background-color: #e9e9e9; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2 style="text-align:center;">🌤️ Open Weather</h2>
+    <a href="weather.html" class="active">☁️ Weather</a>
+    <a href="dashboard.html">🏠 Flood Dashboard</a>
+    <a href="records.html">📄 Records</a>
+    <div class="theme-toggle" onclick="toggleTheme()">Toggle Dark/Light</div>
+    <a href="#" class="logout" onclick="logout()">🚪 Logout</a>
+</div>
+
+<div class="main">
+    <div class="header-banner">
+        <h1>Live Weather & Forecast</h1>
+    </div>
+
+    <div style="position:relative; display:inline-block;">
+        <input type="text" id="cityInput" class="search-bar" placeholder="Enter city or municipality" autocomplete="off" />
+        <div id="autocomplete-list" class="autocomplete-items"></div>
+    </div>
+    <button onclick="searchWeather()">Search</button>
+
+    <div class="weather-card" id="weatherInfo">
+        <p>Enter a city or municipality in Mindanao</p>
+    </div>
+
+    <canvas id="forecastChart" height="100"></canvas>
+</div>
+
+<script>
+const API_KEY = "28274614bb1989f2bb2e37eeec50e83c"; 
+let forecastChart = null;
+
+// Mindanao locations
+const mindanaoLocations = {
+    "Davao City": { lat: 7.1907, lon: 125.4553 },
+    "Zamboanga City": { lat: 6.9214, lon: 122.0790 },
+    "Cagayan de Oro": { lat: 8.4772, lon: 124.6459 },
+    "General Santos": { lat: 6.1160, lon: 125.1714 },
+    "Butuan": { lat: 8.9475, lon: 125.5436 },
+    "Iligan": { lat: 8.2280, lon: 124.2452 },
+    "Tagum": { lat: 7.4429, lon: 125.8012 },
+    "Panabo": { lat: 7.3483, lon: 125.6980 },
+    "Valencia": { lat: 8.1278, lon: 125.0660 },
+    "Malaybalay": { lat: 8.1352, lon: 125.1316 },
+    "Ozamiz": { lat: 8.1533, lon: 123.8411 },
+    "Gingoog": { lat: 8.8283, lon: 124.8365 },
+    "Manolo Fortich": { lat: 8.3550, lon: 125.0000 },
+    "Quezon": { lat: 8.0193, lon: 125.0383 },
+    "Maramag": { lat: 7.7917, lon: 124.9986 },
+    "Tagoloan": { lat: 8.6350, lon: 124.5175 },
+    "Balingasag": { lat: 8.7500, lon: 124.6167 },
+    "Talakag": { lat: 7.9550, lon: 124.1022 },
+    "Pagadian": { lat: 7.8300, lon: 123.4375 },
+    "Koronadal": { lat: 6.4944, lon: 124.8450 },
+    "Kidapawan": { lat: 7.0194, lon: 125.0867 },
+    "Surigao City": { lat: 9.7833, lon: 125.4961 },
+    "Digos": { lat: 6.7350, lon: 125.3494 },
+    "Mati": { lat: 6.9500, lon: 126.2200 },
+    "Polomolok": { lat: 6.2639, lon: 125.0578 },
+    "Tandag": { lat: 9.1550, lon: 126.1650 },
+    "Bislig": { lat: 8.0542, lon: 126.3458 },
+    "Bayugan": { lat: 8.9361, lon: 125.5500 },
+    "Surallah": { lat: 6.3828, lon: 124.8500 }
+};
+
+// THEME FUNCTIONS
+function toggleTheme() {
+    document.body.classList.toggle("dark");
+    localStorage.setItem("theme", document.body.classList.contains("dark") ? "dark" : "light");
+}
+function applySavedTheme() {
+    if (localStorage.getItem("theme") === "dark") document.body.classList.add("dark");
+}
+applySavedTheme();
+
+function logout() {
+    localStorage.removeItem("loggedIn");
+    window.location.href = "index.html";
+}
+
+// AUTOCOMPLETE
+const cityInput = document.getElementById("cityInput");
+const autocompleteList = document.getElementById("autocomplete-list");
+
+cityInput.addEventListener("input", function () {
+    const val = this.value.toLowerCase();
+    autocompleteList.innerHTML = "";
+    if (!val) return;
+
+    Object.keys(mindanaoLocations).forEach(city => {
+        if (city.toLowerCase().includes(val)) {
+            const div = document.createElement("div");
+            div.textContent = city;
+            div.onclick = () => { cityInput.value = city; autocompleteList.innerHTML = ""; };
+            autocompleteList.appendChild(div);
+        }
+    });
+});
+document.addEventListener("click", e => {
+    if (e.target !== cityInput) autocompleteList.innerHTML = "";
+});
+
+// -------------------------------------------
+// ⭐ DEFAULT CHART FOR ALL 30 CITIES
+// -------------------------------------------
+async function loadDefaultTemperatureChart() {
+    const results = [];
+
+    for (const city in mindanaoLocations) {
+        const { lat, lon } = mindanaoLocations[city];
+
+        const res = await fetch(
+            `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`
+        );
+        const data = await res.json();
+
+        let total = 0, count = 0;
+
+        data.list.forEach(e => {
+            total += e.main.temp;
+            count++;
+        });
+
+        const avgTemp = total / count;
+
+        results.push({ city, avgTemp });
+    }
+
+    // Sort by highest temp
+    results.sort((a, b) => b.avgTemp - a.avgTemp);
+
+    const labels = results.map(r => r.city);
+    const temps = results.map(r => r.avgTemp);
+
+    const ctx = document.getElementById("forecastChart").getContext("2d");
+    if (forecastChart) forecastChart.destroy();
+
+    forecastChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [{
+                label: "Highest Avg Temperature (°C)",
+                data: temps,
+                backgroundColor: "rgba(255,99,132,0.6)",
+                borderColor: "red",
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: true } }
+        }
+    });
+}
+
+// Load default leaderboard chart automatically
+loadDefaultTemperatureChart();
+
+
+// -------------------------------------------
+// SEARCH WEATHER (unchanged from original)
+// -------------------------------------------
+async function searchWeather() {
+    const cityVal = cityInput.value.trim();
+    const cityKey = Object.keys(mindanaoLocations).find(c => c.toLowerCase() === cityVal.toLowerCase());
+
+    if (!cityKey) return alert("Enter valid Mindanao city.");
+
+    const { lat, lon } = mindanaoLocations[cityKey];
+
+    const weatherRes = await fetch(
+        `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`
+    );
+    const weather = await weatherRes.json();
+
+    const forecastRes = await fetch(
+        `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`
+    );
+    const forecast = await forecastRes.json();
+
+    // RAINFALL FOR FLOOD RISK
+    let rain24 = 0;
+    for (let i = 0; i < 8; i++) {
+        if (forecast.list[i]?.rain?.["3h"]) rain24 += forecast.list[i].rain["3h"];
+    }
+
+    let risk = "Low", cls = "low";
+    if (rain24 >= 20) { risk = "High"; cls = "high"; }
+    else if (rain24 >= 10) { risk = "Medium"; cls = "medium"; }
+
+    document.getElementById("weatherInfo").innerHTML = `
+        <h2>${cityKey}</h2>
+        <p>Temperature: ${weather.main.temp} °C</p>
+        <p>Humidity: ${weather.main.humidity}%</p>
+        <p>Weather: ${weather.weather[0].description}</p>
+        <p>Wind Speed: ${weather.wind.speed} m/s</p>
+        <p class="flood-risk ${cls}">Flood Risk (24h): ${risk}</p>
+    `;
+
+    // Process forecast chart (single city)
+    const labels = [];
+    const temps = [];
+    const map = {};
+
+    forecast.list.forEach(entry => {
+        const date = new Date(entry.dt * 1000).toLocaleDateString("en-US", {
+            month: "short", day: "numeric"
+        });
+
+        if (!map[date]) map[date] = { sum: 0, cnt: 0 };
+        map[date].sum += entry.main.temp;
+        map[date].cnt++;
+    });
+
+    for (const d in map) {
+        labels.push(d);
+        temps.push(map[d].sum / map[d].cnt);
+    }
+
+    const ctx = document.getElementById("forecastChart").getContext("2d");
+    if (forecastChart) forecastChart.destroy();
+
+    forecastChart = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels,
+            datasets: [{
+                label: cityKey + " Daily Avg Temp (°C)",
+                data: temps,
+                borderColor: "var(--accent)",
+                backgroundColor: "rgba(74,144,226,0.3)",
+                fill: true,
+                tension: 0.3
+            }]
+        }
+    });
+}
+
+</script>
+
+</body>
+</html>

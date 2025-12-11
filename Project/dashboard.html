@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flood Dashboard (Mindanao)</title>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://leaflet.github.io/Leaflet.heat/dist/leaflet-heat.js"></script>
+
+<style>
+:root {
+    --accent: #4A90E2;
+    --bg: #f4f7fa;
+    --text: #222;
+    --card-bg: rgba(255,255,255,0.6);
+    --card-border: rgba(255,255,255,0.4);
+}
+body.dark {
+    --bg: #101418;
+    --text: #f5f5f5;
+    --card-bg: rgba(20,20,20,0.6);
+    --card-border: rgba(255,255,255,0.05);
+}
+body { margin:0;font-family:"Inter",sans-serif;background:var(--bg);color:var(--text); }
+
+.sidebar { width:250px;height:100vh;background:var(--card-bg);position:fixed;top:0;left:0;padding-top:30px; }
+.sidebar a{display:block;padding:14px 30px;color:var(--text);text-decoration:none;}
+.sidebar a.active{background:#4A90E2;color:white;}
+
+.main{margin-left:250px;padding:30px;}
+.header-banner{background:linear-gradient(135deg,#4A90E2,#5AB1FF);padding:30px;color:white;border-radius:18px;margin-bottom:25px;}
+.card{background:var(--card-bg);padding:20px;border-radius:18px;margin-bottom:20px;}
+#map {width:100%;height:450px;border-radius:18px;margin-top:10px;position:relative;}
+
+/* Pulse Markers */
+.pulse-marker { border-radius:50%; display:block; }
+
+.flash-red { width:22px;height:22px;background:red;animation:redPulse 0.9s infinite alternate;}
+@keyframes redPulse {0%{transform:scale(1);box-shadow:0 0 4px red;}100%{transform:scale(1.6);box-shadow:0 0 14px red;}}
+
+.flash-yellow { width:18px;height:18px;background:yellow;animation:yellowPulse 1.4s infinite alternate;}
+@keyframes yellowPulse {0%{transform:scale(1);box-shadow:0 0 3px yellow;}100%{transform:scale(1.4);box-shadow:0 0 12px yellow;}}
+
+.flash-green { width:14px;height:14px;background:green;animation:greenPulse 2s infinite alternate;}
+@keyframes greenPulse {0%{transform:scale(1);box-shadow:0 0 2px green;}100%{transform:scale(1.2);box-shadow:0 0 8px green;}}
+
+/* MAP LEGEND */
+.risk-legend {
+    position: absolute;
+    bottom: 30px;
+    left: 30px;
+    background: rgba(255,255,255,0.95);
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    z-index: 999;
+}
+body.dark .risk-legend { background: rgba(20,20,20,0.80); color:white; }
+.risk-legend h4 { margin:0 0 6px; font-size:15px; }
+.legend-box {
+    width: 14px;
+    height: 14px;
+    display:inline-block;
+    margin-right:8px;
+    border-radius:4px;
+}
+.legend-box.high{ background:red; }
+.legend-box.moderate{ background:gold; }
+.legend-box.low{ background:green; }
+
+.toggle-switch { margin-bottom: 20px; }
+.city-search { margin-bottom: 20px; padding: 8px 12px; border-radius: 8px; border:1px solid #ccc; width:250px; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+<h2 style="text-align:center;">FloodSystem</h2>
+<a href="dashboard.html" class="active">🏠 Dashboard</a>
+<a href="records.html">📄 Records</a>
+<a href="weather.html">🌤️ Weather</a>
+<div class="theme-toggle" onclick="toggleTheme()" style="padding:12px;background:#4A90E2;color:white;margin:15px;border-radius:8px;cursor:pointer;">Toggle Dark/Light</div>
+<a href="#" onclick="logout()" style="color:red;">🚪 Logout</a>
+</div>
+
+<div class="main">
+<div class="header-banner">
+<h1>DASHBOARD</h1>
+<p>Mindanao Flood Monitoring (City Level)</p>
+</div>
+
+<!-- TOGGLE SWITCH -->
+<div class="toggle-switch">
+<label><input type="radio" name="monthToggle" value="current" checked onchange="switchMonth()"> Current Month</label>
+<label style="margin-left:15px;"><input type="radio" name="monthToggle" value="past" onchange="switchMonth()"> Past Month</label>
+</div>
+
+<!-- CHART -->
+<div class="card">
+<h2>Flood Records</h2>
+<canvas id="floodChart" height="100"></canvas>
+</div>
+
+<!-- MAP -->
+<div class="card">
+<h2>Flood Locations Map</h2>
+<button onclick="toggleHeatmap()">Toggle Heatmap</button>
+<div id="map">
+    <div id="riskLegend" class="risk-legend">
+        <h4>Risk Levels</h4>
+        <div><span class="legend-box high"></span> High Risk</div>
+        <div><span class="legend-box moderate"></span> Moderate Risk</div>
+        <div><span class="legend-box low"></span> Low Risk</div>
+    </div>
+</div>
+</div>
+
+</div>
+
+<script>
+const mindanaoLocations = [
+    { name: "Cagayan de Oro City", lat: 8.4772, lon: 124.6459 },
+    { name: "Iligan City", lat: 8.2280, lon: 124.2452 },
+    { name: "Valencia City", lat: 7.9064, lon: 125.0942 },
+    { name: "Davao City", lat: 7.1907, lon: 125.4553 },
+    { name: "Tagum City", lat: 7.4475, lon: 125.8094 },
+    { name: "Panabo City", lat: 7.3081, lon: 125.6845 },
+    { name: "Butuan City", lat: 8.9475, lon: 125.5436 },
+    { name: "Surigao City", lat: 9.7570, lon: 125.5134 },
+    { name: "Zamboanga City", lat: 6.9214, lon: 122.0790 },
+    { name: "Pagadian City", lat: 7.8257, lon: 123.4370 },
+    { name: "General Santos City", lat: 6.1164, lon: 125.1716 },
+    { name: "Koronadal City", lat: 6.5031, lon: 124.8460 }
+];
+
+const API_KEY = "917bb031f7ec0e6d7ab16cd492231a35";
+let floodChart = null, map = null, heatLayer = null;
+let currentMonth = true;
+let cityFilter = "";
+
+document.addEventListener("DOMContentLoaded", async () => {
+    applySavedTheme();
+    await fetchFloodData();
+    displayChart();
+    displayMap();
+});
+
+/* ===============================
+   FETCH DATA SIMULATION
+   =============================== */
+async function fetchFloodData() {
+    const records = [];
+    for (const loc of mindanaoLocations) {
+        const rainfall = Math.random() * 25;
+        const waterLevel = rainfall >= 20 ? 120 : rainfall >= 10 ? 80 : rainfall >= 5 ? 50 : rainfall > 0 ? 30 : 10;
+        const risk = getRiskLevel(waterLevel);
+        const date = new Date().toISOString().split("T")[0];
+        records.push({...loc, rainfall, waterLevel, risk, date});
+    }
+    localStorage.setItem("floodRecordsCurrent", JSON.stringify(records));
+
+    const pastRecords = records.map(r => {
+        const pastWL = r.waterLevel * (0.4 + Math.random()*0.5);
+        return {...r, waterLevel: pastWL, risk: getRiskLevel(pastWL)};
+    });
+    localStorage.setItem("floodRecordsPast", JSON.stringify(pastRecords));
+}
+
+/* ===============================
+   RISK LEVEL
+   =============================== */
+function getRiskLevel(level) {
+    if(level>=100) return "High";
+    if(level>=50) return "Moderate";
+    return "Low";
+}
+
+/* ===============================
+   DISPLAY CHART
+   =============================== */
+function displayChart() {
+    const dataKey = currentMonth ? "floodRecordsCurrent" : "floodRecordsPast";
+    let rec = JSON.parse(localStorage.getItem(dataKey) || "[]");
+
+    if(cityFilter) rec = rec.filter(r => r.name.toLowerCase().includes(cityFilter.toLowerCase()));
+
+    const labels = rec.map(r => r.name);
+    const values = rec.map(r => r.waterLevel);
+    const bgColors = rec.map(r => r.risk==="High"?"red":r.risk==="Moderate"?"yellow":"green");
+
+    const ctx = document.getElementById("floodChart").getContext("2d");
+    if(floodChart) floodChart.destroy();
+    floodChart = new Chart(ctx,{
+        type:"bar",
+        data:{ labels, datasets:[{ label: currentMonth?"Current Month":"Past Month", data: values, backgroundColor:bgColors }] },
+        options:{ responsive:true, scales:{ y:{ beginAtZero:true } } }
+    });
+}
+
+/* ===============================
+   DISPLAY MAP (IMPROVED)
+   =============================== */
+function displayMap() {
+    const dataKey = currentMonth ? "floodRecordsCurrent" : "floodRecordsPast";
+    let rec = JSON.parse(localStorage.getItem(dataKey) || "[]");
+
+    if (cityFilter) {
+        rec = rec.filter(r => r.name.toLowerCase().includes(cityFilter.toLowerCase()));
+    }
+
+    if (!map) {
+        map = L.map("map").setView([8, 125], 6);
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(map);
+
+        map._markers = [];
+    }
+
+    // Clear markers only
+    map._markers.forEach(m => map.removeLayer(m));
+    map._markers = [];
+
+    if (heatLayer) map.removeLayer(heatLayer);
+
+    const markerCoords = [];
+    const heatPoints = [];
+
+    rec.forEach(r => {
+        const colorClass =
+            r.risk === "High" ? "flash-red" :
+            r.risk === "Moderate" ? "flash-yellow" :
+            "flash-green";
+
+        const iconHtml = `<div class="pulse-marker ${colorClass}"></div>`;
+
+        const marker = L.marker([r.lat, r.lon], {
+            icon: L.divIcon({ html: iconHtml, className: "", iconSize: [20, 20] })
+        }).addTo(map);
+
+        marker.bindPopup(`
+            <b>${r.name}</b><br>
+            Water Level: ${r.waterLevel.toFixed(1)} cm<br>
+            Risk: <b>${r.risk}</b>
+        `);
+
+        map._markers.push(marker);
+        markerCoords.push([r.lat, r.lon]);
+        heatPoints.push([r.lat, r.lon, Math.min(r.waterLevel / 120, 1)]);
+    });
+
+    heatLayer = L.heatLayer(heatPoints, {
+        radius: 40,
+        blur: 28,
+        maxZoom: 12,
+        gradient: {
+            0.0: "rgba(0, 255, 0, 0)",
+            0.3: "rgba(255, 255, 0, 0.45)",
+            0.6: "rgba(255, 165, 0, 0.75)",
+            0.9: "rgba(255, 0, 0, 0.9)"
+        }
+    }).addTo(map);
+
+    if (markerCoords.length > 0) {
+        map.fitBounds(markerCoords, { padding: [25, 25] });
+    }
+}
+
+/* ===============================
+   TOGGLE SWITCH
+   =============================== */
+function switchMonth() {
+    currentMonth = document.querySelector('input[name="monthToggle"]:checked').value==="current";
+    displayChart();
+    displayMap();
+}
+
+/* ===============================
+   THEME & LOGOUT
+   =============================== */
+function toggleTheme(){
+    document.body.classList.toggle("dark");
+    localStorage.setItem("theme", document.body.classList.contains("dark")?"dark":"light");
+}
+function applySavedTheme(){
+    if(localStorage.getItem("theme")==="dark") document.body.classList.add("dark");
+}
+function logout(){
+    localStorage.removeItem("loggedIn");
+    window.location.href="index.html";
+}
+
+/* ===============================
+   HEATMAP TOGGLE
+   =============================== */
+function toggleHeatmap(){
+    if(!heatLayer) return;
+    if(map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
+    else map.addLayer(heatLayer);
+}
+</script>
+
+</body>
+</html>

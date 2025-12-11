@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flood system - Records</title>
+<style>
+:root {
+    --accent: #4A90E2;
+    --bg: #f4f7fa;
+    --text: #222;
+    --card-bg: rgba(255,255,255,0.6);
+    --card-border: rgba(255,255,255,0.4);
+}
+body.dark {
+    --bg: #101418;
+    --text: #f5f5f5;
+    --card-bg: rgba(20,20,20,0.6);
+    --card-border: rgba(255,255,255,0.05);
+}
+body {
+    margin:0;
+    font-family: "Inter", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    transition: background 0.8s, color 0.5s;
+}
+.sidebar {
+    width: 250px;
+    height: 100vh;
+    position: fixed;
+    top:0; left:0;
+    background: var(--card-bg);
+    backdrop-filter: blur(18px);
+    border-right: 1px solid var(--card-border);
+    padding-top: 30px;
+}
+.sidebar h2{text-align:center;margin-bottom:30px;font-weight:600;}
+.sidebar a {
+    display:block;
+    padding: 14px 30px;
+    text-decoration:none;
+    color: var(--text);
+    transition:0.3s;
+}
+.sidebar a:hover {
+    background: rgba(74,144,226,0.15);
+    border-left: 4px solid var(--accent);
+    padding-left:26px;
+}
+.sidebar a.active {
+    background: rgba(74,144,226,0.25);
+    border-left:4px solid var(--accent);
+    font-weight:600;
+}
+.theme-toggle {
+    margin: 20px 25px;
+    padding:12px;
+    border-radius:8px;
+    text-align:center;
+    cursor:pointer;
+    background: var(--accent);
+    color:white;
+}
+.main {
+    margin-left: 250px;
+    padding:30px;
+}
+h2 {
+    font-size:28px;
+    margin-bottom:20px;
+}
+.card {
+    background: var(--card-bg);
+    border:1px solid var(--card-border);
+    padding:20px;
+    border-radius:18px;
+    backdrop-filter:blur(16px);
+    margin-bottom:25px;
+    transition:0.3s;
+}
+.card:hover { transform: translateY(-2px); }
+input, button {
+    padding:12px;
+    border-radius:10px;
+    border:1px solid var(--card-border);
+    background: var(--card-bg);
+    margin-right:8px;
+    margin-bottom:10px;
+}
+button { background: var(--accent); color:white; cursor:pointer; border:none; }
+button:hover { opacity:0.9; }
+table {
+    width:100%;
+    border-collapse: collapse;
+}
+th, td {
+    padding:12px;
+    text-align:center;
+    border-bottom:1px solid var(--card-border);
+}
+tr:hover { background: rgba(74,144,226,0.1); transition:0.3s; }
+th { background: rgba(74,144,226,0.15); }
+@media (max-width: 850px) { .sidebar{width:200px;} .main{margin-left:200px;} }
+@media (max-width: 650px) { .sidebar{display:none;} .main{margin-left:0;} }
+</style>
+</head>
+<body onload="init()">
+
+<div class="sidebar">
+<h2 style="text-align:center;">Flood Records</h2>
+<a href="dashboard.html" class="active">🏠 Dashboard</a>
+<a href="records.html">📄 Records</a>
+<a href="weather.html">🌤️ Weather</a>
+<div class="theme-toggle" onclick="toggleTheme()" style="padding:12px;background:#4A90E2;color:white;margin:15px;border-radius:8px;cursor:pointer;">Toggle Dark/Light</div>
+<a href="#" onclick="logout()" style="color:red;">🚪 Logout</a>
+</div>
+
+<div class="main">
+    <h2>Below are the list on current + past month records</h2>
+
+    <div class="card">
+        <form id="recordForm" onsubmit="addOrUpdateRecord(); return false;">
+            <input id="location" placeholder="Location" required>
+            <input id="waterLevel" type="number" placeholder="Water Level (cm)" required>
+            <input id="rainfall" type="number" placeholder="Rainfall (mm)" required>
+            <button type="submit">Add Record</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Location</th>
+                    <th>Water Level (cm)</th>
+                    <th>Rainfall (mm)</th>
+                    <th>Risk</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="recordsTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+let editingIndex = -1;
+
+// ------------------ THEME ------------------
+function toggleTheme(){
+    document.body.classList.toggle("dark");
+    localStorage.setItem("theme", document.body.classList.contains("dark") ? "dark":"light");
+}
+function applySavedTheme(){
+    if(localStorage.getItem("theme")==="dark") document.body.classList.add("dark");
+}
+applySavedTheme();
+
+// ------------------ LOCATIONS ------------------
+const mindanaoLocations = {
+    "Davao City": { lat: 7.1907, lon: 125.4553 },
+    "Zamboanga City": { lat: 6.9214, lon: 122.0790 },
+    "Cagayan de Oro": { lat: 8.4772, lon: 124.6459 },
+    "General Santos": { lat: 6.1160, lon: 125.1714 },
+    "Butuan": { lat: 8.9475, lon: 125.5436 },
+    "Iligan": { lat: 8.2280, lon: 124.2452 },
+    "Tagum": { lat: 7.4429, lon: 125.8012 },
+    "Panabo": { lat: 7.3483, lon: 125.6980 },
+    "Valencia": { lat: 8.1278, lon: 125.0660 },
+    "Malaybalay": { lat: 8.1352, lon: 125.1316 },
+    "Ozamiz": { lat: 8.1533, lon: 123.8411 },
+    "Gingoog": { lat: 8.8283, lon: 124.8365 },
+    "Manolo Fortich": { lat: 8.3550, lon: 125.0000 },
+    "Quezon": { lat: 8.0193, lon: 125.0383 },
+    "Maramag": { lat: 7.7917, lon: 124.9986 },
+    "Tagoloan": { lat: 8.6350, lon: 124.5175 },
+    "Balingasag": { lat: 8.7500, lon: 124.6167 },
+    "Talakag": { lat: 7.9550, lon: 124.1022 },
+    "Pagadian": { lat: 7.8300, lon: 123.4375 },
+    "Koronadal": { lat: 6.4944, lon: 124.8450 },
+    "Kidapawan": { lat: 7.0194, lon: 125.0867 },
+    "Surigao City": { lat: 9.7833, lon: 125.4961 },
+    "Digos": { lat: 6.7350, lon: 125.3494 },
+    "Mati": { lat: 6.9500, lon: 126.2200 },
+    "Polomolok": { lat: 6.2639, lon: 125.0578 },
+    "Tandag": { lat: 9.1550, lon: 126.1650 },
+    "Bislig": { lat: 8.0542, lon: 126.3458 },
+    "Bayugan": { lat: 8.9361, lon: 125.5500 },
+    "Surallah": { lat: 6.3828, lon: 124.8500 }
+};
+
+// ------------------ RISK ------------------
+function getRiskLevel(wl){
+    if(wl>=100) return "High";
+    if(wl>=50) return "Medium";
+    return "Low";
+}
+
+// ------------------ INIT ------------------
+function init(){
+    if(!localStorage.getItem("manualFloodRecords")){
+        generateFloodRecords();
+    }
+    displayRecords();
+}
+
+// ------------------ GENERATE DATA ------------------
+function generateFloodRecords(){
+    const records = [];
+    Object.keys(mindanaoLocations).forEach(city=>{
+        const rainfallCur = +(Math.random()*30).toFixed(1);
+        const waterLevelCur = +(rainfallCur*4).toFixed(1);
+        records.push({
+            location: city,
+            rainfall: rainfallCur,
+            waterLevel: waterLevelCur,
+            risk: getRiskLevel(waterLevelCur),
+            date: new Date().toISOString().split("T")[0]
+        });
+
+        // Past month
+        const rainfallPast = +(rainfallCur*(0.4 + Math.random()*0.5)).toFixed(1);
+        const waterLevelPast = +(rainfallPast*4).toFixed(1);
+        records.push({
+            location: city + " (Past Month)",
+            rainfall: rainfallPast,
+            waterLevel: waterLevelPast,
+            risk: getRiskLevel(waterLevelPast),
+            date: "2024-01-01"
+        });
+    });
+    localStorage.setItem("manualFloodRecords", JSON.stringify(records));
+}
+
+// ------------------ DISPLAY ------------------
+function displayRecords(){
+    const records = JSON.parse(localStorage.getItem("manualFloodRecords")||"[]");
+    records.sort((a,b)=>b.waterLevel-b.waterLevel);
+    const table = document.getElementById("recordsTable");
+    table.innerHTML = "";
+    records.forEach((rec,index)=>{
+        const row = document.createElement("tr");
+        row.innerHTML = `
+            <td>${rec.location}</td>
+            <td>${rec.waterLevel}</td>
+            <td>${rec.rainfall}</td>
+            <td style="color:${rec.risk==='High'?'red':rec.risk==='Medium'?'orange':'green'}; font-weight:bold;">${rec.risk}</td>
+            <td>
+                <button onclick="editRecord(${index})">Edit</button>
+                <button onclick="deleteRecord(${index})">Delete</button>
+            </td>
+        `;
+        table.appendChild(row);
+    });
+}
+
+// ------------------ ADD / UPDATE ------------------
+function editRecord(index){
+    const records = JSON.parse(localStorage.getItem("manualFloodRecords")||"[]");
+    const rec = records[index];
+    document.getElementById("location").value = rec.location;
+    document.getElementById("waterLevel").value = rec.waterLevel;
+    document.getElementById("rainfall").value = rec.rainfall;
+    document.querySelector("#recordForm button").textContent = "Update Record";
+    editingIndex = index;
+}
+
+function addOrUpdateRecord(){
+    const location = document.getElementById("location").value.trim();
+    const waterLevel = parseFloat(document.getElementById("waterLevel").value);
+    const rainfall = parseFloat(document.getElementById("rainfall").value);
+    if(!location || isNaN(waterLevel) || isNaN(rainfall)){
+        alert("Please fill all fields correctly!");
+        return;
+    }
+    const records = JSON.parse(localStorage.getItem("manualFloodRecords")||"[]");
+    if(editingIndex>-1){
+        // Update
+        records[editingIndex] = {
+            location, waterLevel, rainfall,
+            risk: getRiskLevel(waterLevel),
+            date: records[editingIndex].date
+        };
+        editingIndex=-1;
+        document.querySelector("#recordForm button").textContent = "Add Record";
+    } else {
+        // Add new
+        records.push({
+            location, waterLevel, rainfall,
+            risk: getRiskLevel(waterLevel),
+            date: new Date().toISOString().split("T")[0]
+        });
+    }
+    localStorage.setItem("manualFloodRecords", JSON.stringify(records));
+    document.getElementById("recordForm").reset();
+    displayRecords();
+}
+// ------------------ DELETE ------------------
+function deleteRecord(index){
+    const records = JSON.parse(localStorage.getItem("manualFloodRecords")||"[]");
+    records.splice(index,1);
+    localStorage.setItem("manualFloodRecords", JSON.stringify(records));
+    displayRecords();
+}
+</script>
+</body>
+</html>
